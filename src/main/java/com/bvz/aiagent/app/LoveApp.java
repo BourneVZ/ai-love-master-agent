@@ -1,14 +1,20 @@
 package com.bvz.aiagent.app;
 
+import com.bvz.aiagent.advisor.MyLoggerAdvisor;
+import com.bvz.aiagent.advisor.ReReadingAdvisor;
+import com.bvz.aiagent.chatmemory.FileBasedChatMemory;
 import com.bvz.aiagent.constant.AppConstant;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 @Component
 @Slf4j
@@ -22,15 +28,26 @@ public class LoveApp {
             "引导用户详述事情经过、对方反应及自身想法，以便给出专属解决方案。";
 
     public LoveApp(ChatModel dashscopeChatModel) {
+        // 初始化基于文件的对话记忆
+        String fileDir = System.getProperty("user.dir") + "/tmp/chat-memory";
+        ChatMemory chatMemory = new FileBasedChatMemory(fileDir);
+
         // 初始化基于内存的对话记忆
-        ChatMemory chatMemory = MessageWindowChatMemory
-                .builder()
-                .maxMessages(AppConstant.MAX_MESSAGE_WINDOW)
-                .build();
+//        ChatMemory chatMemory = MessageWindowChatMemory
+//                .builder()
+//                .maxMessages(AppConstant.MAX_MESSAGE_WINDOW)
+//                .build();
+
         chatClient = ChatClient
                 .builder(dashscopeChatModel)
                 .defaultSystem(SYSTEM_PROMPT)
-                .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
+                .defaultAdvisors(
+                        MessageChatMemoryAdvisor.builder(chatMemory).build()
+                        // 自定义日志 Advisor，可按需开启
+                        ,new MyLoggerAdvisor()
+//                        // 自定义推理增强 Advisor，可按需开启
+//                        ,new ReReadingAdvisor()
+                )
                 .build();
     }
 
@@ -45,5 +62,21 @@ public class LoveApp {
         log.info("content: {}", content);
         return content;
     }
+
+    record LoveReport(String title, List<String> suggestions) {
+    }
+
+    public LoveReport doChatWithReport(String message, String chatId) {
+        LoveReport loveReport = chatClient
+                .prompt()
+                .system(SYSTEM_PROMPT + "每次对话后都要生成恋爱结果，标题为{用户名}的恋爱报告，内容为建议列表")
+                .user(message)
+                .advisors(advisor -> advisor.param(ChatMemory.CONVERSATION_ID, chatId))
+                .call()
+                .entity(LoveReport.class);
+        log.info("loveReport: {}", loveReport);
+        return loveReport;
+    }
+
 
 }
