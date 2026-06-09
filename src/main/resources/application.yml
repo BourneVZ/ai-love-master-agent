@@ -1,6 +1,6 @@
 spring:
   application:
-    name: ai-agent
+    name: ai-love-master-agent
   profiles:
     active: local
 server:
