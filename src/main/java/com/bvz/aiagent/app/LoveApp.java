@@ -85,6 +85,9 @@ public class LoveApp {
     @Resource
     private Advisor loveAppRagCloudAdvisor;
 
+    @Resource
+    private VectorStore pgVectorVectorStoreConfig;
+
     /**
      * 使用 RAG 数据库进行对话
      * @param message
@@ -96,13 +99,21 @@ public class LoveApp {
                 .prompt()
                 .user(message)
                 .advisors(advisor -> advisor.param(ChatMemory.CONVERSATION_ID, chatId))
-                // 应用 RAG 知识库问答
-//                .advisors(QuestionAnswerAdvisor.builder(loveAppVectorStore)
+
+                // 应用 RAG 检索增强服务(基于内存向量库)
+                .advisors(QuestionAnswerAdvisor.builder(loveAppVectorStore)
+                        .searchRequest(SearchRequest.builder().topK(3).similarityThreshold(0.3).build())
+                        .protectFromBlocking(true)
+                        .build())
+
+                // 应用 RAG 检索增强服务（基于云知识库）
+//                .advisors(loveAppRagCloudAdvisor)
+
+                // 应用 RAG 检索增强服务（基于云PgVector）
+//                .advisors(QuestionAnswerAdvisor.builder(pgVectorVectorStoreConfig)
 //                        .searchRequest(SearchRequest.builder().topK(3).similarityThreshold(0.3).build())
 //                        .protectFromBlocking(true)
 //                        .build())
-                // 应用 RAG 检索增强服务（基于云知识库）
-                .advisors(loveAppRagCloudAdvisor)
 
                 .call()
                 .chatResponse();
