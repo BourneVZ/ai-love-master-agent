@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * 基于阿里云云知识库服务的 RAG 增强顾问(RetrievalAugmentationAdvisor)
+ * RAG 检索增强顾问配置（向量数据库基于阿里云知识库）
  */
 @Configuration
 @Slf4j
@@ -31,7 +31,7 @@ class LoveAppRagCloudAdvisorConfig {
                 DashScopeDocumentRetrieverOptions.builder()
                         .withIndexName(KNOWLEDGE_INDEX)
                         .build());
-        return RetrievalAugmentationAdvisor.builder()
+        return RetrievalAugmentationAdvisor.builder() // 比QuestionsAnswerAdvisor更灵活，可以自定义。如预检索处理
                 .documentRetriever(documentRetriever)
                 .build();
     }
