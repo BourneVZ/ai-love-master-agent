@@ -13,6 +13,7 @@ import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvi
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,18 +24,6 @@ import java.util.List;
 @Component
 @Slf4j
 public class LoveApp {
-
-    @Resource
-    private VectorStore loveAppVectorStore;
-
-    @Resource
-    private Advisor loveAppRagCloudAdvisor;
-
-    @Resource
-    private VectorStore pgVectorVectorStore;
-
-    @Resource
-    private QueryRewriter queryRewriter;
 
     private final ChatClient chatClient;
 
@@ -94,6 +83,17 @@ public class LoveApp {
         return loveReport;
     }
 
+    @Resource
+    private VectorStore loveAppVectorStore;
+
+    @Resource
+    private Advisor loveAppRagCloudAdvisor;
+
+    @Resource
+    private VectorStore pgVectorVectorStore;
+
+    @Resource
+    private QueryRewriter queryRewriter;
 
     /**
      * 使用 RAG 数据库进行对话
@@ -137,6 +137,24 @@ public class LoveApp {
         log.info("content: {}", content);
         return content;
     }
+
+    @Resource
+    private ToolCallback[] allTools;
+
+    public String doChatWithTools(String message, String chatId) {
+        ChatResponse response = chatClient
+                .prompt()
+                .user(message)
+                .advisors(advisor -> advisor.param(ChatMemory.CONVERSATION_ID, chatId))
+                .tools(allTools)
+                .call()
+                .chatResponse();
+        String content = response.getResult().getOutput().getText();
+        log.info("content: {}", content);
+        return content;
+    }
+
+
 
 
 }
