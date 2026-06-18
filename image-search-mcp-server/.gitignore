@@ -1,11 +1,3 @@
-### CUSTOM ###
-application-local.yml
-application-prod.yml
-mcp-servers.json
-tmp
-.claude
-CLAUDE.md
-
 HELP.md
 target/
 .mvn/wrapper/maven-wrapper.jar

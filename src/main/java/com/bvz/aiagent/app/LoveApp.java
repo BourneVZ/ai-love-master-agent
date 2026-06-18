@@ -13,7 +13,9 @@ import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvi
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -138,9 +140,17 @@ public class LoveApp {
         return content;
     }
 
+
     @Resource
     private ToolCallback[] allTools;
 
+    /**
+     * 支持调用工具
+     *
+     * @param message
+     * @param chatId
+     * @return
+     */
     public String doChatWithTools(String message, String chatId) {
         ChatResponse response = chatClient
                 .prompt()
@@ -153,6 +163,33 @@ public class LoveApp {
         log.info("content: {}", content);
         return content;
     }
+
+
+    @Autowired
+    private SyncMcpToolCallbackProvider toolCallbackProvider;
+
+    /**
+     * 支持调用MCP
+     *
+     * @param message
+     * @param chatId
+     * @return
+     */
+    public String doChatWithMcp(String message, String chatId) {
+        ToolCallback[] toolCallbacks = toolCallbackProvider.getToolCallbacks();
+
+        ChatResponse response = chatClient
+                .prompt()
+                .user(message)
+                .advisors(advisor -> advisor.param(ChatMemory.CONVERSATION_ID, chatId))
+                .toolCallbacks(toolCallbacks)
+                .call()
+                .chatResponse();
+        String content = response.getResult().getOutput().getText();
+        log.info("content: {}", content);
+        return content;
+    }
+
 
 
 
