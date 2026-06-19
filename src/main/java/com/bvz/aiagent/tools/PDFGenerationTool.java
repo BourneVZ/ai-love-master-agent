@@ -1,6 +1,7 @@
 package com.bvz.aiagent.tools;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import com.itextpdf.io.image.ImageDataFactory;
 import com.itextpdf.kernel.colors.DeviceGray;
 import com.itextpdf.kernel.font.PdfFont;
@@ -37,25 +38,20 @@ import java.util.regex.Pattern;
 @Slf4j
 public class PDFGenerationTool {
 
-    // Markdown 图片语法，例如 ![alt](https://...)
     private static final Pattern MARKDOWN_IMAGE_PATTERN = Pattern.compile("!\\[([^\\]]*)\\]\\((https?://[^)\\s]+)\\)");
-
-    // Markdown 链接语法，例如 [标题](https://...)
     private static final Pattern MARKDOWN_LINK_PATTERN = Pattern.compile("\\[([^\\]]+)]\\((https?://[^)\\s]+)\\)");
-
-    // 兜底匹配裸露 URL，用于兼容非 markdown 场景。
     private static final Pattern RAW_URL_PATTERN = Pattern.compile("https?://\\S+");
-
-    // 支持 markdown 中引用本地图片路径，避免生成 PDF 时再临时联网抓图。
     private static final Pattern LOCAL_IMAGE_PATTERN = Pattern.compile("!\\[([^\\]]*)\\]\\(([^)]+\\.(png|jpg|jpeg|webp))\\)");
 
-    @Tool(description = "根据给定内容生成 PDF 文件，支持基础 markdown 排版，并会尝试把图片直接嵌入 PDF")
+    @Tool(description = "根据给定内容生成 PDF 文件，支持基础 markdown 排版，并尝试把图片嵌入 PDF")
     public String generatePDF(
             @ToolParam(description = "生成后的 PDF 文件名") String fileName,
-            @ToolParam(description = "需要写入 PDF 的正文内容") String content) {
+            @ToolParam(description = "需要写入 PDF 的正文内容") String content
+    ) {
         String fileDir = FileConstant.FILE_SAVE_DIR + "/pdf";
         String filePath = fileDir + "/" + fileName;
         String tempFilePath = filePath + ".tmp";
+        List<String> embeddedLocalAssets = collectEmbeddedLocalAssets(content);
 
         try {
             cn.hutool.core.io.FileUtil.mkdir(fileDir);
@@ -65,25 +61,43 @@ public class PDFGenerationTool {
                  Document document = new Document(pdf)) {
                 PdfFont font = PdfFontFactory.createFont("STSongStd-Light", "UniGB-UCS2-H");
                 document.setFont(font);
-
-                // 先按字体能力做清洗，再进入渲染，避免 iText 在排版阶段写出坏 PDF。
                 renderMarkdownLikeContent(document, sanitizeForPdf(content, font));
             }
 
             Files.move(Paths.get(tempFilePath), Paths.get(filePath), StandardCopyOption.REPLACE_EXISTING);
-            return "PDF generated successfully to: " + filePath;
+            boolean readable = Files.exists(Paths.get(filePath)) && Files.size(Paths.get(filePath)) > 0;
+            return JSONUtil.createObj()
+                    .set("success", true)
+                    .set("localPath", filePath)
+                    .set("readable", readable)
+                    .set("embeddedLocalAssets", embeddedLocalAssets)
+                    .toString();
         } catch (Exception e) {
             cn.hutool.core.io.FileUtil.del(tempFilePath);
             cn.hutool.core.io.FileUtil.del(filePath);
             log.error("生成 PDF 失败: {}", e.getMessage(), e);
-            return "Error generating PDF: " + e.getMessage();
+            return JSONUtil.createObj()
+                    .set("success", false)
+                    .set("localPath", "")
+                    .set("readable", false)
+                    .set("embeddedLocalAssets", embeddedLocalAssets)
+                    .set("error", e.getMessage())
+                    .toString();
         }
     }
 
-    /**
-     * 做一层轻量 markdown 渲染。
-     * 不追求完整规范，只覆盖当前 Agent 输出里最常见的标题、列表、引用、表格、链接和图片。
-     */
+    private List<String> collectEmbeddedLocalAssets(String content) {
+        List<String> assets = new ArrayList<>();
+        if (StrUtil.isBlank(content)) {
+            return assets;
+        }
+        Matcher matcher = LOCAL_IMAGE_PATTERN.matcher(content);
+        while (matcher.find()) {
+            assets.add(matcher.group(2).trim());
+        }
+        return assets;
+    }
+
     private void renderMarkdownLikeContent(Document document, String content) {
         if (StrUtil.isBlank(content)) {
             document.add(new Paragraph(""));
@@ -115,35 +129,20 @@ public class PDFGenerationTool {
             }
 
             if (line.startsWith("### ")) {
-                document.add(new Paragraph(cleanInlineMarkdown(line.substring(4)))
-                        .setFontSize(14)
-                        .setFontColor(new DeviceGray(0.1f))
-                        .setMarginTop(8)
-                        .setMarginBottom(6));
+                document.add(new Paragraph(cleanInlineMarkdown(line.substring(4))).setFontSize(14).setFontColor(new DeviceGray(0.1f)).setMarginTop(8).setMarginBottom(6));
                 continue;
             }
             if (line.startsWith("## ")) {
-                document.add(new Paragraph(cleanInlineMarkdown(line.substring(3)))
-                        .setFontSize(16)
-                        .setFontColor(new DeviceGray(0.05f))
-                        .setMarginTop(10)
-                        .setMarginBottom(8));
+                document.add(new Paragraph(cleanInlineMarkdown(line.substring(3))).setFontSize(16).setFontColor(new DeviceGray(0.05f)).setMarginTop(10).setMarginBottom(8));
                 continue;
             }
             if (line.startsWith("# ")) {
-                document.add(new Paragraph(cleanInlineMarkdown(line.substring(2)))
-                        .setFontSize(20)
-                        .setFontColor(new DeviceGray(0.0f))
-                        .setMarginTop(4)
-                        .setMarginBottom(10));
+                document.add(new Paragraph(cleanInlineMarkdown(line.substring(2))).setFontSize(20).setFontColor(new DeviceGray(0.0f)).setMarginTop(4).setMarginBottom(10));
                 continue;
             }
 
             if (line.startsWith("> ")) {
-                document.add(new Paragraph(cleanInlineMarkdown(line.substring(2)))
-                        .setFontColor(new DeviceGray(0.35f))
-                        .setMarginLeft(16)
-                        .setMarginBottom(8));
+                document.add(new Paragraph(cleanInlineMarkdown(line.substring(2))).setFontColor(new DeviceGray(0.35f)).setMarginLeft(16).setMarginBottom(8));
                 continue;
             }
 
@@ -179,8 +178,7 @@ public class PDFGenerationTool {
             return;
         }
 
-        String cleaned = cleanInlineMarkdown(content);
-        document.add(new Paragraph("- " + cleaned).setMarginLeft(12).setMarginBottom(4));
+        document.add(new Paragraph("- " + cleanInlineMarkdown(content)).setMarginLeft(12).setMarginBottom(4));
     }
 
     private void renderNormalLine(Document document, String line) {
@@ -224,9 +222,6 @@ public class PDFGenerationTool {
         return "---".equals(line) || "***".equals(line);
     }
 
-    /**
-     * 把 markdown 表格渲染成真正的 PDF 表格。
-     */
     private void renderTable(Document document, List<String> tableLines) {
         if (tableLines.size() < 2) {
             tableLines.forEach(line -> document.add(new Paragraph(cleanInlineMarkdown(line))));
@@ -240,9 +235,7 @@ public class PDFGenerationTool {
 
         Table table = new Table(UnitValue.createPercentArray(headers.size())).useAllAvailableWidth();
         for (String header : headers) {
-            table.addHeaderCell(new Cell()
-                    .setBackgroundColor(new DeviceGray(0.9f))
-                    .add(new Paragraph(cleanInlineMarkdown(header)).setFontSize(11)));
+            table.addHeaderCell(new Cell().setBackgroundColor(new DeviceGray(0.9f)).add(new Paragraph(cleanInlineMarkdown(header)).setFontSize(11)));
         }
 
         for (int i = 2; i < tableLines.size(); i++) {
@@ -275,27 +268,16 @@ public class PDFGenerationTool {
         return result;
     }
 
-    /**
-     * 处理行内 markdown。
-     * 当前重点是去掉视觉噪音，让 PDF 呈现更接近普通文档而不是 markdown 源码。
-     */
     private String cleanInlineMarkdown(String line) {
         if (line == null) {
             return "";
         }
 
-        String cleaned = line;
-        cleaned = MARKDOWN_LINK_PATTERN.matcher(cleaned).replaceAll("$1 ($2)");
-        cleaned = cleaned.replace("**", "")
-                .replace("__", "")
-                .replace("`", "");
+        String cleaned = MARKDOWN_LINK_PATTERN.matcher(line).replaceAll("$1 ($2)");
+        cleaned = cleaned.replace("**", "").replace("__", "").replace("`", "");
         return cleaned.trim();
     }
 
-    /**
-     * URL 清洗很关键。
-     * markdown 图片尾部的 ')' 等符号如果被一起吃进 URL，会导致下载失败。
-     */
     private String sanitizeUrl(String rawUrl) {
         if (rawUrl == null) {
             return "";
@@ -307,10 +289,6 @@ public class PDFGenerationTool {
         return url;
     }
 
-    /**
-     * 下载并嵌入图片。
-     * 这里显式设置 UA 和超时，避免部分图床因默认请求头过于“裸”而拒绝访问。
-     */
     private void addImageFromUrl(Document document, String imageUrl, String altText) {
         if (StrUtil.isBlank(imageUrl)) {
             return;
@@ -351,10 +329,6 @@ public class PDFGenerationTool {
         }
     }
 
-    /**
-     * 模型有时会给出绝对路径、相对路径，或者只有文件名。
-     * 这里统一做一次兜底解析，优先保证项目自己的下载目录能被命中。
-     */
     private File resolveLocalImageFile(String imagePath) {
         Path resolvedPath = Paths.get(imagePath).normalize();
         if (resolvedPath.isAbsolute()) {
@@ -405,10 +379,6 @@ public class PDFGenerationTool {
         }
     }
 
-    /**
-     * 按当前字体能力过滤字符。
-     * 只保留该字体可编码的内容，避免 iText 在排版阶段因缺失 glyph 写出损坏 PDF。
-     */
     private String sanitizeForPdf(String content, PdfFont font) {
         if (content == null) {
             return "";
@@ -421,11 +391,7 @@ public class PDFGenerationTool {
                 return;
             }
 
-            if (!Character.isBmpCodePoint(codePoint)) {
-                return;
-            }
-
-            if (Character.isISOControl(codePoint)) {
+            if (!Character.isBmpCodePoint(codePoint) || Character.isISOControl(codePoint)) {
                 return;
             }
 

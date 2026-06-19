@@ -16,7 +16,6 @@ import java.util.stream.Collectors;
 
 public class WebSearchTool {
 
-    // SearchAPI 的搜索接口地址
     private static final String SEARCH_API_URL = "https://www.searchapi.io/api/v1/search";
 
     private final String apiKey;
@@ -28,33 +27,32 @@ public class WebSearchTool {
     }
 
     @Tool(description = "使用百度搜索网页信息，适合查找地点、攻略、资讯等外部资料")
-    public String searchWeb(
-            @ToolParam(description = "搜索关键词") String query) {
+    public String searchWeb(@ToolParam(description = "搜索关键词") String query) {
         HttpUrl.Builder urlBuilder = HttpUrl.get(SEARCH_API_URL).newBuilder();
         urlBuilder.addQueryParameter("engine", "baidu");
         urlBuilder.addQueryParameter("q", query);
         urlBuilder.addQueryParameter("api_key", apiKey);
 
-        Request request = new Request.Builder()
-                .url(urlBuilder.build())
-                .build();
+        Request request = new Request.Builder().url(urlBuilder.build()).build();
 
         try (Response response = client.newCall(request).execute()) {
             String responseBody = response.body().string();
-            // 取出返回结果的前 5 条
             JSONObject jsonObject = JSONUtil.parseObj(responseBody);
-            // 提取 organic_results 部分
             JSONArray organicResults = jsonObject.getJSONArray("organic_results");
             int endIndex = Math.min(organicResults.size(), 5);
-            List<Object> objects = organicResults.subList(0, endIndex);
-            // 拼接搜索结果为字符串
-            String result = objects.stream().map(obj -> {
-                JSONObject tmpJSONObject = (JSONObject) obj;
-                return tmpJSONObject.toString();
-            }).collect(Collectors.joining(","));
-            return result;
+            List<Object> items = organicResults.subList(0, endIndex).stream().map(obj -> {
+                JSONObject item = (JSONObject) obj;
+                return JSONUtil.createObj()
+                        .set("title", item.getStr("title"))
+                        .set("snippet", item.getStr("snippet"))
+                        .set("link", item.getStr("link"));
+            }).collect(Collectors.toList());
+            return JSONUtil.createObj().set("items", items).toString();
         } catch (IOException e) {
-            return "Error searching Baidu: " + e.getMessage();
+            return JSONUtil.createObj()
+                    .set("items", JSONUtil.createArray())
+                    .set("error", e.getMessage())
+                    .toString();
         }
     }
 }
