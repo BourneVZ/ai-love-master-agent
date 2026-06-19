@@ -34,7 +34,9 @@ public class MyLoggerAdvisor implements CallAdvisor, StreamAdvisor {
     }
 
     private void logResponse(ChatClientResponse ChatClientResponse) {
-        log.info("AI Response: {}", ChatClientResponse.chatResponse().getResult().getOutput().getText());
+        var output = ChatClientResponse.chatResponse().getResult().getOutput();
+        log.info("AI Response: {}", output.getText());
+        log.info("AI Tool Calls: {}", output.getToolCalls());
     }
     @Override
     public ChatClientResponse adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain chain) {

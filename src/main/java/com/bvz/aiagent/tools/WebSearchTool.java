@@ -27,9 +27,9 @@ public class WebSearchTool {
         this.client = new OkHttpClient();
     }
 
-    @Tool(description = "Search for information from Baidu Search Engine")
+    @Tool(description = "使用百度搜索网页信息，适合查找地点、攻略、资讯等外部资料")
     public String searchWeb(
-            @ToolParam(description = "Search query keyword") String query) {
+            @ToolParam(description = "搜索关键词") String query) {
         HttpUrl.Builder urlBuilder = HttpUrl.get(SEARCH_API_URL).newBuilder();
         urlBuilder.addQueryParameter("engine", "baidu");
         urlBuilder.addQueryParameter("q", query);
