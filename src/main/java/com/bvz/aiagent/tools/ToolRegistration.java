@@ -51,6 +51,7 @@ public class ToolRegistration {
         );
     }
 
+    @Bean
     public ToolResultInterpreterRegistry toolResultInterpreterRegistry() {
         return new ToolResultInterpreterRegistry(List.of(
                 new WebSearchResultInterpreter(),

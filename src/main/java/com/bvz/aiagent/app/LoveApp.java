@@ -57,6 +57,20 @@ public class LoveApp {
                 .build();
     }
 
+    LoveApp(
+            ChatClient chatClient,
+            QueryRewriter queryRewriter,
+            ToolCallback[] allTools,
+            SyncMcpToolCallbackProvider toolCallbackProvider,
+            VectorStore loveAppVectorStore
+    ) {
+        this.chatClient = chatClient;
+        this.queryRewriter = queryRewriter;
+        this.allTools = allTools;
+        this.toolCallbackProvider = toolCallbackProvider;
+        this.loveAppVectorStore = loveAppVectorStore;
+    }
+
     public String doChat(String message, String chatId) {
         ChatResponse chatResponse = chatClient
                 .prompt()
