@@ -1,6 +1,7 @@
 ### CUSTOM ###
 application-local.yml
 application-prod.yml
+mcp-servers.json
 tmp
 .claude
 CLAUDE.md

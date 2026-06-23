@@ -1,78 +1,129 @@
 package com.bvz.aiagent.app;
 
-import cn.hutool.core.lang.UUID;
-import jakarta.annotation.Resource;
-import org.junit.jupiter.api.Assertions;
+import com.bvz.aiagent.rag.QueryRewriter;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.mockito.ArgumentCaptor;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.vectorstore.VectorStore;
 
-import static org.junit.jupiter.api.Assertions.*;
+import java.util.List;
+import java.util.function.Consumer;
 
-@SpringBootTest
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.RETURNS_SELF;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 class LoveAppTest {
 
-    @Resource
+    private ChatClient chatClient;
+    private ChatClient.ChatClientRequestSpec requestSpec;
+    private ChatClient.CallResponseSpec callResponseSpec;
+    private QueryRewriter queryRewriter;
+    private ToolCallback[] allTools;
+    private SyncMcpToolCallbackProvider toolCallbackProvider;
+    private VectorStore loveAppVectorStore;
     private LoveApp loveApp;
 
-    @Test
-    void testChat() {
-        String chatId = UUID.randomUUID().toString();
-        // 第一轮
-        String message = "你好，我是程序员BVZ";
-        String answer = loveApp.doChat(message, chatId);
-        Assertions.assertNotNull(answer);
-        // 第二轮
-        message = "我想让另一半（HW）更爱我";
-        answer = loveApp.doChat(message, chatId);
-        Assertions.assertNotNull(answer);
-        // 第三轮
-        message = "我的另一半叫什么来着？刚跟你说过，帮我回忆一下";
-        answer = loveApp.doChat(message, chatId);
-        Assertions.assertNotNull(answer);
+    @BeforeEach
+    void setUp() {
+        chatClient = mock(ChatClient.class);
+        requestSpec = mock(ChatClient.ChatClientRequestSpec.class, RETURNS_SELF);
+        callResponseSpec = mock(ChatClient.CallResponseSpec.class);
+        queryRewriter = mock(QueryRewriter.class);
+        allTools = new ToolCallback[]{mock(ToolCallback.class)};
+        toolCallbackProvider = mock(SyncMcpToolCallbackProvider.class);
+        loveAppVectorStore = mock(VectorStore.class);
+
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.call()).thenReturn(callResponseSpec);
+
+        loveApp = new LoveApp(chatClient, queryRewriter, allTools, toolCallbackProvider, loveAppVectorStore);
     }
 
     @Test
-    void doChatWithReport() {
-        String chatId = UUID.randomUUID().toString();
-        // 第一轮
-        String message = "我想让另一半（编程导航）更爱我，但我不知道该怎么做";
-        LoveApp.LoveReport loveReport = loveApp.doChatWithReport(message, chatId);
-        Assertions.assertNotNull(loveReport);
+    void shouldPassConversationIdWhenDoingChat() {
+        ChatResponse response = mock(ChatResponse.class, RETURNS_DEEP_STUBS);
+        when(response.getResult().getOutput().getText()).thenReturn("hello");
+        when(callResponseSpec.chatResponse()).thenReturn(response);
+
+        String output = loveApp.doChat("hi", "chat-1");
+
+        assertEquals("hello", output);
+        verify(requestSpec).user("hi");
+        assertConversationIdPropagated("chat-1");
     }
 
     @Test
-    void doChatWithRag() {
-        String chatId = UUID.randomUUID().toString();
-        String message = "我已经结婚了，但是婚后关系不太亲密，怎么办？";
-        String answer =  loveApp.doChatWithRag(message, chatId);
-        Assertions.assertNotNull(answer);
+    void shouldReturnStructuredReport() {
+        LoveApp.LoveReport report = new LoveApp.LoveReport("report-title", List.of("s1", "s2"));
+        when(callResponseSpec.entity(LoveApp.LoveReport.class)).thenReturn(report);
+
+        LoveApp.LoveReport output = loveApp.doChatWithReport("help", "chat-2");
+
+        assertEquals("report-title", output.title());
+        assertEquals(List.of("s1", "s2"), output.suggestions());
+        verify(requestSpec).user("help");
+        assertConversationIdPropagated("chat-2");
     }
 
     @Test
-    void doChatWithTools() {
-        // 测试联网搜索问题的答案
-        testMessage("周末想带女朋友去杭州约会，推荐几个适合情侣的小众打卡地？");
+    void shouldRewriteQueryBeforeRagChat() {
+        ChatResponse response = mock(ChatResponse.class, RETURNS_DEEP_STUBS);
+        when(response.getResult().getOutput().getText()).thenReturn("rag-answer");
+        when(callResponseSpec.chatResponse()).thenReturn(response);
+        when(queryRewriter.doQueryRewrite("original")).thenReturn("rewritten");
 
-        // 测试网页抓取：恋爱案例分析
-        testMessage("最近和对象吵架了，看看交友网站（https://github.com/BourneVZ）的其他情侣是怎么解决矛盾的？");
+        String output = loveApp.doChatWithRag("original", "chat-3");
 
-        // 测试资源下载：图片下载
-        testMessage("直接下载一张适合做手机壁纸的星空情侣图片为文件");
-
-        // 测试终端操作：执行代码
-        testMessage("执行 Python3 脚本来生成数据分析报告");
-
-        // 测试文件操作：保存用户档案
-        testMessage("保存我的恋爱档案为文件");
-
-        // 测试 PDF 生成
-        testMessage("生成一份‘七夕约会计划’PDF，包含餐厅预订、活动流程和礼物清单");
+        assertEquals("rag-answer", output);
+        verify(queryRewriter).doQueryRewrite("original");
+        verify(requestSpec).user("rewritten");
+        assertConversationIdPropagated("chat-3");
     }
 
-    private void testMessage(String message) {
-        String chatId = UUID.randomUUID().toString();
-        String answer = loveApp.doChatWithTools(message, chatId);
-        Assertions.assertNotNull(answer);
+    @Test
+    void shouldCallToolCallbacksWhenToolsChatIsRequested() {
+        ChatResponse response = mock(ChatResponse.class, RETURNS_DEEP_STUBS);
+        when(response.getResult().getOutput().getText()).thenReturn("tool-answer");
+        when(callResponseSpec.chatResponse()).thenReturn(response);
+
+        String output = loveApp.doChatWithTools("tool task", "chat-4");
+
+        assertEquals("tool-answer", output);
+        verify(requestSpec).toolCallbacks(allTools);
+        assertConversationIdPropagated("chat-4");
     }
 
+    @Test
+    void shouldCallMcpProviderCallbacksWhenMcpChatIsRequested() {
+        ChatResponse response = mock(ChatResponse.class, RETURNS_DEEP_STUBS);
+        ToolCallback[] mcpTools = new ToolCallback[]{mock(ToolCallback.class), mock(ToolCallback.class)};
+        when(response.getResult().getOutput().getText()).thenReturn("mcp-answer");
+        when(callResponseSpec.chatResponse()).thenReturn(response);
+        when(toolCallbackProvider.getToolCallbacks()).thenReturn(mcpTools);
+
+        String output = loveApp.doChatWithMcp("mcp task", "chat-5");
+
+        assertEquals("mcp-answer", output);
+        verify(toolCallbackProvider).getToolCallbacks();
+        verify(requestSpec).toolCallbacks(mcpTools);
+        assertConversationIdPropagated("chat-5");
+    }
+
+    private void assertConversationIdPropagated(String expectedChatId) {
+        ArgumentCaptor<Consumer<ChatClient.AdvisorSpec>> captor = ArgumentCaptor.forClass(Consumer.class);
+        verify(requestSpec).advisors(captor.capture());
+        ChatClient.AdvisorSpec advisorSpec = mock(ChatClient.AdvisorSpec.class, RETURNS_SELF);
+        captor.getValue().accept(advisorSpec);
+        verify(advisorSpec).param(ChatMemory.CONVERSATION_ID, expectedChatId);
+    }
 }

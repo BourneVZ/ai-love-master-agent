@@ -8,8 +8,8 @@ public class FileOperationTool {
 
     private final String FILE_DIR = FileConstant.FILE_SAVE_DIR + "/file";
 
-    @Tool(description = "Read content from a file")
-    public String readFile(@ToolParam(description = "Name of the file to read") String fileName) {
+    @Tool(description = "读取本地文件内容")
+    public String readFile(@ToolParam(description = "要读取的文件名") String fileName) {
         String filePath = FILE_DIR + "/" + fileName;
         try {
             return FileUtil.readUtf8String(filePath);
@@ -18,10 +18,10 @@ public class FileOperationTool {
         }
     }
 
-    @Tool(description = "Write content to a file")
+    @Tool(description = "把内容写入本地文件")
     public String writeFile(
-        @ToolParam(description = "Name of the file to write") String fileName,
-        @ToolParam(description = "Content to write to the file") String content) {
+        @ToolParam(description = "要写入的文件名") String fileName,
+        @ToolParam(description = "要写入文件的内容") String content) {
         String filePath = FILE_DIR + "/" + fileName;
         try {
             // 创建目录
