@@ -8,6 +8,7 @@ import com.bvz.aiagent.core.tool.ToolResultInterpreterRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 public class ModelStepExecutor {
 
@@ -74,6 +75,16 @@ public class ModelStepExecutor {
     }
 
     public StepResult executeNextStep(AgentTask task, ExecutionState state, ExecutionPlan plan) {
+        return executeNextStep(task, state, plan, step -> {
+        });
+    }
+
+    public StepResult executeNextStep(
+            AgentTask task,
+            ExecutionState state,
+            ExecutionPlan plan,
+            Consumer<String> stepConsumer
+    ) {
         if (autonomousToolRuntime == null) {
             ExecutionState nextState = new ExecutionState(
                     state.stepIndex() + 1,
@@ -87,6 +98,6 @@ public class ModelStepExecutor {
             );
             return new StepResult(List.of("runtime not configured"), List.of(), nextState, true);
         }
-        return autonomousToolRuntime.execute(task, state, plan);
+        return autonomousToolRuntime.execute(task, state, plan, stepConsumer);
     }
 }

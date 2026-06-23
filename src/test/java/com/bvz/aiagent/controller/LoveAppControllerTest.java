@@ -1,5 +1,6 @@
 package com.bvz.aiagent.controller;
 
+import com.bvz.aiagent.agent.LoveManus;
 import com.bvz.aiagent.app.LoveApp;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -7,6 +8,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import reactor.core.publisher.Flux;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.when;
@@ -14,7 +16,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(LoveAppController.class)
+@WebMvcTest(AiController.class)
 class LoveAppControllerTest {
 
     @Autowired
@@ -23,11 +25,14 @@ class LoveAppControllerTest {
     @MockBean
     private LoveApp loveApp;
 
+    @MockBean
+    private LoveManus loveManus;
+
     @Test
     void shouldExposeLoveAppSseEndpointAndPassThroughParameters() throws Exception {
-        when(loveApp.doChat("hello", "chat-1")).thenReturn("advice");
+        when(loveApp.doChatByStream("hello", "chat-1")).thenReturn(Flux.just("advice"));
 
-        mockMvc.perform(get("/api/ai/love_app/chat/sse")
+        mockMvc.perform(get("/ai/love_app/chat/sse")
                         .param("message", "hello")
                         .param("chatId", "chat-1"))
                 .andExpect(status().isOk())

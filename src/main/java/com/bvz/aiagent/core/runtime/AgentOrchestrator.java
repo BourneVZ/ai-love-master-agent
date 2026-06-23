@@ -10,6 +10,8 @@ import com.bvz.aiagent.core.model.StepResult;
 import com.bvz.aiagent.core.model.TaskProfile;
 import com.bvz.aiagent.core.skill.SkillRegistry;
 
+import java.util.function.Consumer;
+
 public class AgentOrchestrator {
 
     private final TaskClassifier taskClassifier;
@@ -36,6 +38,11 @@ public class AgentOrchestrator {
     }
 
     public AgentResult run(AgentTask task) {
+        return run(task, step -> {
+        });
+    }
+
+    public AgentResult run(AgentTask task, Consumer<String> stepConsumer) {
         TaskProfile profile = taskClassifier.classify(task.originalUserRequest());
         AgentTask classifiedTask = new AgentTask(
                 task.taskId(),
@@ -55,7 +62,7 @@ public class AgentOrchestrator {
                 new SuccessContract(false, false, null, null, true, false, false)
         );
 
-        StepResult stepResult = executor.executeNextStep(classifiedTask, state, plan);
+        StepResult stepResult = executor.executeNextStep(classifiedTask, state, plan, stepConsumer);
         ExecutionState nextState = stepResult.nextState();
         ValidationResult validation = validator.validate(classifiedTask, nextState, guidanceBundle.contract());
         if (!validation.passed() && validation.repairable()) {

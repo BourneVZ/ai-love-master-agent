@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -82,13 +83,24 @@ public class AutonomousToolRuntime {
     }
 
     public StepResult execute(AgentTask task, ExecutionState state, ExecutionPlan plan) {
-        return new RuntimeSession(task, state, plan).run();
+        return execute(task, state, plan, step -> {
+        });
+    }
+
+    public StepResult execute(
+            AgentTask task,
+            ExecutionState state,
+            ExecutionPlan plan,
+            Consumer<String> stepConsumer
+    ) {
+        return new RuntimeSession(task, state, plan, stepConsumer).run();
     }
 
     private final class RuntimeSession {
         private final AgentTask task;
         private final ExecutionPlan plan;
         private final ExecutionState initialState;
+        private final Consumer<String> stepConsumer;
         private final List<Message> messages = new ArrayList<>();
         private final List<String> stepNarratives = new ArrayList<>();
         private final List<String> toolHistory;
@@ -102,10 +114,17 @@ public class AutonomousToolRuntime {
         private int executedSteps;
         private boolean terminated;
 
-        private RuntimeSession(AgentTask task, ExecutionState state, ExecutionPlan plan) {
+        private RuntimeSession(
+                AgentTask task,
+                ExecutionState state,
+                ExecutionPlan plan,
+                Consumer<String> stepConsumer
+        ) {
             this.task = task;
             this.plan = plan;
             this.initialState = state;
+            this.stepConsumer = stepConsumer == null ? step -> {
+            } : stepConsumer;
             this.toolHistory = new ArrayList<>(state.toolHistory());
             this.observations = new ArrayList<>(state.observations());
             this.partialArtifacts = new ArrayList<>(state.partialArtifacts());
@@ -120,13 +139,17 @@ public class AutonomousToolRuntime {
                 }
                 String actResult = act();
                 if (StrUtil.isNotBlank(actResult)) {
-                    stepNarratives.add("Step " + executedSteps + ": " + actResult);
+                    String narrative = "Step " + executedSteps + ": " + actResult;
+                    stepNarratives.add(narrative);
+                    stepConsumer.accept(narrative);
                 }
             }
 
             if (!terminated && executedSteps >= MAX_STEPS) {
                 terminated = true;
-                stepNarratives.add("Step " + MAX_STEPS + ": Terminated: Reached max steps (" + MAX_STEPS + ")");
+                String narrative = "Step " + MAX_STEPS + ": Terminated: Reached max steps (" + MAX_STEPS + ")";
+                stepNarratives.add(narrative);
+                stepConsumer.accept(narrative);
                 observations.add("FINAL_RESPONSE: Reached max steps before confirming completion");
             }
 

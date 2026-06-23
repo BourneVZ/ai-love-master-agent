@@ -1,9 +1,8 @@
 package com.bvz.aiagent.controller;
 
+import com.bvz.aiagent.agent.LoveManus;
 import com.bvz.aiagent.app.LoveApp;
 import jakarta.annotation.Resource;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,10 +20,7 @@ public class AiController {
     private LoveApp loveApp;
 
     @Resource
-    private ToolCallback[] allTools;
-
-    @Resource
-    private ChatModel dashscopeChatModel;
+    private LoveManus loveManus;
 
     /**
      * 同步调用
@@ -79,4 +75,8 @@ public class AiController {
     }
 
 
+    @GetMapping(value = "/manus/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter doChatWithManus(String message) {
+        return loveManus.runStream(message);
+    }
 }
