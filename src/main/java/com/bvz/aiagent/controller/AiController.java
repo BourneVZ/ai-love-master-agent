@@ -40,18 +40,7 @@ public class AiController {
      * @return
      */
     @GetMapping(value = "/love_app/chat/sse", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> doChatWithLoveAppSSE(String message, String chatId) {
-        return loveApp.doChatByStream(message, chatId);
-    }
-
-    /**
-     * SSE流式调用 （SseEmitter实现方式）
-     * @param message
-     * @param chatId
-     * @return
-     */
-    @GetMapping("/love_app/chat/sse/emitter")
-    public SseEmitter doChatWithLoveAppSseEmitter(String message, String chatId) {
+    public SseEmitter doChatWithLoveAppSSE(String message, String chatId) {
         // 创建一个超时时间较长的 SseEmitter
         SseEmitter emitter = new SseEmitter(180000L); // 3分钟超时
         // 获取 Flux 数据流并直接订阅
@@ -60,7 +49,7 @@ public class AiController {
                         // 处理每条消息
                         chunk -> {
                             try {
-                                emitter.send(chunk);
+                                emitter.send(SseEmitter.event().data(chunk));
                             } catch (IOException e) {
                                 emitter.completeWithError(e);
                             }

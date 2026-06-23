@@ -38,7 +38,11 @@
               <span>{{ message.role === 'user' ? '你' : assistantName }}</span>
               <time>{{ message.time }}</time>
             </div>
-            <p>{{ message.content || '正在思考...' }}</p>
+            <p v-if="message.content">{{ message.content }}</p>
+            <div v-else class="thinking-content" aria-label="正在思考">
+              <LoaderCircle :size="16" class="thinking-spinner spin" />
+              <span>正在思考...</span>
+            </div>
           </div>
         </article>
       </div>
@@ -76,7 +80,7 @@ import {
   Sparkles,
   UserRound
 } from '@lucide/vue'
-import { createLoveAppSse, createManusSse } from '../api/chat'
+import { streamLoveAppChat, streamManusChat } from '../api/chat'
 
 const props = defineProps({
   mode: {
@@ -131,7 +135,13 @@ const messages = ref([
 const isStreaming = ref(false)
 const errorMessage = ref('')
 const messagePanel = ref(null)
-let eventSource = null
+
+let streamController = null
+let typewriterTimer = null
+let typewriterQueue = []
+let typewriterDoneResolver = null
+let pendingManusMessage = null
+let receivedManusChunk = false
 
 const shortChatId = computed(() => chatId.value.slice(-8))
 const canSend = computed(() => draft.value.trim().length > 0 && !isStreaming.value)
@@ -156,20 +166,124 @@ function appendMessage(role, content = '') {
   }
   messages.value.push(message)
   scrollToBottom()
-  return message
-}
-
-function appendChunk(message, chunk) {
-  message.content += normalizeChunk(chunk)
-  scrollToBottom()
+  return messages.value[messages.value.length - 1]
 }
 
 function normalizeChunk(chunk) {
-  if (chunk === '[DONE]') {
-    return ''
+  return chunk.replace(/^FINAL_RESPONSE:\s*/i, '').replaceAll('\\n', '\n')
+}
+
+function enqueueChunk(message, chunk) {
+  const normalizedChunk = normalizeChunk(chunk)
+  if (!normalizedChunk) {
+    return
   }
 
-  return chunk.replaceAll('\\n', '\n')
+  typewriterQueue.push({
+    message,
+    text: normalizedChunk
+  })
+  startTypewriter()
+}
+
+function enqueueStreamChunk(currentMessage, chunk) {
+  if (props.mode === 'manus') {
+    receivedManusChunk = true
+    const targetMessage = pendingManusMessage
+    pendingManusMessage = null
+    enqueueChunk(targetMessage, chunk)
+    return
+  }
+
+  enqueueChunk(currentMessage, chunk)
+}
+
+function startTypewriter() {
+  if (typewriterTimer) {
+    return
+  }
+
+  typewriterTimer = window.setInterval(() => {
+    if (typewriterQueue.length === 0) {
+      stopTypewriter()
+      return
+    }
+
+    const current = typewriterQueue[0]
+    if (!current.message) {
+      current.message = appendMessage('assistant')
+    }
+
+    const nextText = current.text.slice(0, 1)
+    current.message.content += nextText
+    current.text = current.text.slice(nextText.length)
+
+    if (!current.text) {
+      typewriterQueue.shift()
+      ensurePendingManusMessage()
+    }
+
+    scrollToBottom()
+  }, 35)
+}
+
+function ensurePendingManusMessage() {
+  if (props.mode !== 'manus' || !isStreaming.value || typewriterQueue.length > 0 || pendingManusMessage) {
+    return
+  }
+
+  pendingManusMessage = appendMessage('assistant')
+}
+
+function stopTypewriter() {
+  if (typewriterTimer) {
+    window.clearInterval(typewriterTimer)
+    typewriterTimer = null
+  }
+
+  if (typewriterQueue.length === 0 && typewriterDoneResolver) {
+    typewriterDoneResolver()
+    typewriterDoneResolver = null
+  }
+}
+
+function waitForTypewriter() {
+  if (typewriterQueue.length === 0 && !typewriterTimer) {
+    return Promise.resolve()
+  }
+
+  return new Promise((resolve) => {
+    typewriterDoneResolver = resolve
+  })
+}
+
+function resetTypewriter() {
+  if (typewriterTimer) {
+    window.clearInterval(typewriterTimer)
+    typewriterTimer = null
+  }
+
+  typewriterQueue = []
+  pendingManusMessage = null
+  receivedManusChunk = false
+
+  if (typewriterDoneResolver) {
+    typewriterDoneResolver()
+    typewriterDoneResolver = null
+  }
+}
+
+function clearPendingManusMessage() {
+  if (!pendingManusMessage || pendingManusMessage.content) {
+    pendingManusMessage = null
+    return
+  }
+
+  const pendingIndex = messages.value.findIndex((message) => message.id === pendingManusMessage.id)
+  if (pendingIndex !== -1) {
+    messages.value.splice(pendingIndex, 1)
+  }
+  pendingManusMessage = null
 }
 
 async function scrollToBottom() {
@@ -180,13 +294,13 @@ async function scrollToBottom() {
 }
 
 function closeStream() {
-  if (eventSource) {
-    eventSource.close()
-    eventSource = null
+  if (streamController) {
+    streamController.abort()
+    streamController = null
   }
 }
 
-function sendMessage() {
+async function sendMessage() {
   const message = draft.value.trim()
   if (!message || isStreaming.value) {
     return
@@ -194,36 +308,61 @@ function sendMessage() {
 
   errorMessage.value = ''
   draft.value = ''
+  closeStream()
+  resetTypewriter()
   appendMessage('user', message)
   const aiMessage = appendMessage('assistant')
-
-  closeStream()
+  pendingManusMessage = props.mode === 'manus' ? aiMessage : null
+  streamController = new AbortController()
   isStreaming.value = true
-  eventSource =
-    props.mode === 'love' ? createLoveAppSse(message, chatId.value) : createManusSse(message)
 
-  eventSource.onmessage = (event) => {
-    appendChunk(aiMessage, event.data)
-  }
+  try {
+    const streamTask =
+      props.mode === 'love'
+        ? streamLoveAppChat({
+            message,
+            chatId: chatId.value,
+            signal: streamController.signal,
+            onChunk: (chunk) => enqueueStreamChunk(aiMessage, chunk)
+          })
+        : streamManusChat({
+            message,
+            signal: streamController.signal,
+            onChunk: (chunk) => enqueueStreamChunk(aiMessage, chunk)
+          })
 
-  eventSource.onerror = () => {
-    closeStream()
+    await streamTask
+    await waitForTypewriter()
     isStreaming.value = false
 
-    if (!aiMessage.content) {
-      aiMessage.content = '连接已结束或服务暂不可用，请稍后重试。'
+    if (props.mode === 'manus' && receivedManusChunk) {
+      clearPendingManusMessage()
     }
 
-    errorMessage.value = '流式连接已关闭。若回复不完整，请重新发送。'
-  }
+    if (!aiMessage.content) {
+      aiMessage.content = '本次没有收到有效回复，请稍后重试。'
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      return
+    }
 
-  eventSource.addEventListener('complete', () => {
-    closeStream()
     isStreaming.value = false
-  })
+    clearPendingManusMessage()
+
+    if (!aiMessage.content) {
+      aiMessage.content = '连接失败或服务暂不可用，请稍后重试。'
+    }
+
+    errorMessage.value = '流式连接异常，请检查后端服务或稍后重试。'
+  } finally {
+    isStreaming.value = false
+    streamController = null
+  }
 }
 
 onBeforeUnmount(() => {
   closeStream()
+  resetTypewriter()
 })
 </script>

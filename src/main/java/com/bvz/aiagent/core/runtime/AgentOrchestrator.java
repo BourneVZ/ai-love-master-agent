@@ -8,8 +8,10 @@ import com.bvz.aiagent.core.model.ExecutionPlan;
 import com.bvz.aiagent.core.model.ExecutionState;
 import com.bvz.aiagent.core.model.StepResult;
 import com.bvz.aiagent.core.model.TaskProfile;
+import com.bvz.aiagent.core.model.TaskType;
 import com.bvz.aiagent.core.skill.SkillRegistry;
 
+import java.util.List;
 import java.util.function.Consumer;
 
 public class AgentOrchestrator {
@@ -38,12 +40,14 @@ public class AgentOrchestrator {
     }
 
     public AgentResult run(AgentTask task) {
-        return run(task, step -> {
-        });
+        return run(task, null);
     }
 
     public AgentResult run(AgentTask task, Consumer<String> stepConsumer) {
         TaskProfile profile = taskClassifier.classify(task.originalUserRequest());
+        if (profile == null) {
+            profile = new TaskProfile(TaskType.HYBRID, "MEDIUM", false, false);
+        }
         AgentTask classifiedTask = new AgentTask(
                 task.taskId(),
                 task.originalUserRequest(),
@@ -62,7 +66,22 @@ public class AgentOrchestrator {
                 new SuccessContract(false, false, null, null, true, false, false)
         );
 
-        StepResult stepResult = executor.executeNextStep(classifiedTask, state, plan, stepConsumer);
+        StepResult stepResult = stepConsumer == null
+                ? executor.executeNextStep(classifiedTask, state, plan)
+                : executor.executeNextStep(classifiedTask, state, plan, stepConsumer);
+        if (stepResult == null) {
+            ExecutionState failedState = new ExecutionState(
+                    state.stepIndex(),
+                    state.toolCallCount(),
+                    state.planningRound(),
+                    state.toolHistory(),
+                    List.of("FINAL_RESPONSE: 执行器未返回有效结果"),
+                    state.partialArtifacts(),
+                    state.violations(),
+                    ExecutionState.Status.FAILED
+            );
+            stepResult = new StepResult(List.of(), List.of(), failedState, true);
+        }
         ExecutionState nextState = stepResult.nextState();
         ValidationResult validation = validator.validate(classifiedTask, nextState, guidanceBundle.contract());
         if (!validation.passed() && validation.repairable()) {
@@ -71,9 +90,19 @@ public class AgentOrchestrator {
 
         return new AgentResult(
                 validation.passed() ? AgentResult.Status.COMPLETED : AgentResult.Status.FAILED,
-                nextState.observations().isEmpty() ? "" : nextState.observations().getLast(),
+                displayOutput(nextState),
                 validation.summary(),
                 nextState.partialArtifacts()
         );
+    }
+
+    private String displayOutput(ExecutionState state) {
+        if (state.observations().isEmpty()) {
+            return "任务已执行，但未产出可展示的文本结果";
+        }
+
+        String output = state.observations().getLast();
+        output = output == null ? "" : output.replaceFirst("^FINAL_RESPONSE:\\s*", "").trim();
+        return output.isBlank() ? "任务已执行，但未产出可展示的文本结果" : output;
     }
 }

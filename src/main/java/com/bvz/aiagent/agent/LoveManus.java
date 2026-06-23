@@ -31,7 +31,7 @@ public class LoveManus {
         CompletableFuture.runAsync(() -> {
             try {
                 if (StrUtil.isBlank(userPrompt)) {
-                    emitter.send("错误：不能使用空提示词运行代理");
+                    emitter.send(SseEmitter.event().data("错误：不能使用空提示词运行代理"));
                     emitter.complete();
                     return;
                 }
@@ -48,7 +48,7 @@ public class LoveManus {
             } catch (Exception e) {
                 log.error("执行 LoveManus 流式任务失败", e);
                 try {
-                    emitter.send("执行错误: " + e.getMessage());
+                    emitter.send(SseEmitter.event().data("执行错误: " + e.getMessage()));
                     emitter.complete();
                 } catch (IOException ex) {
                     emitter.completeWithError(ex);
@@ -63,7 +63,7 @@ public class LoveManus {
 
     private void sendStep(SseEmitter emitter, String message) {
         try {
-            emitter.send(message);
+            emitter.send(SseEmitter.event().data(message));
         } catch (IOException e) {
             throw new RuntimeException("发送流式消息失败", e);
         }

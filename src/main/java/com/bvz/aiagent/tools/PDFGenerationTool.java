@@ -59,7 +59,7 @@ public class PDFGenerationTool {
             try (PdfWriter writer = new PdfWriter(tempFilePath);
                  PdfDocument pdf = new PdfDocument(writer);
                  Document document = new Document(pdf)) {
-                PdfFont font = PdfFontFactory.createFont("STSongStd-Light", "UniGB-UCS2-H");
+                PdfFont font = PdfFontFactory.createFont("STSong-Light", "UniGB-UCS2-H");
                 document.setFont(font);
                 renderMarkdownLikeContent(document, sanitizeForPdf(content, font));
             }

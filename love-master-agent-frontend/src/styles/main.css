@@ -324,6 +324,20 @@ textarea:disabled {
   line-height: 1.72;
 }
 
+.thinking-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 27px;
+  color: var(--muted);
+  line-height: 1.72;
+}
+
+.thinking-spinner {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
 .composer {
   display: grid;
   grid-template-columns: 1fr 48px;

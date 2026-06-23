@@ -259,9 +259,21 @@ public class AutonomousToolRuntime {
                 String toolName = response.name();
                 String rawResult = String.valueOf(response.responseData());
                 toolCalls.add(toolName);
-                toolHistory.add(toolName + ":SUCCESS");
+                toolHistory.add(toolName + ":" + determineToolStatus(toolName, rawResult));
                 appendStructuredSignals(toolName, rawResult);
             });
+        }
+
+        private String determineToolStatus(String toolName, String rawResult) {
+            if (("downloadResource".equals(toolName) || "generatePDF".equals(toolName))
+                    && StrUtil.isNotBlank(rawResult)
+                    && JSONUtil.isTypeJSON(rawResult)) {
+                return JSONUtil.parseObj(rawResult).getBool("success", false) ? "SUCCESS" : "FAILURE";
+            }
+            if (rawResult != null && rawResult.toLowerCase().startsWith("skipped ")) {
+                return "SKIPPED";
+            }
+            return "SUCCESS";
         }
 
         private void appendStructuredSignals(String toolName, String rawResult) {
@@ -297,14 +309,20 @@ public class AutonomousToolRuntime {
         }
 
         private String determineFinalOutput() {
+            if (!partialArtifacts.isEmpty()) {
+                return "我已经完成任务，并生成了可读取的 PDF 文件：" + partialArtifacts.getLast();
+            }
+            if (StrUtil.containsAnyIgnoreCase(task.originalUserRequest(), "pdf") && hasFailedToolResponseNamed("generatePDF")) {
+                return "我已经完成了前面的信息检索和资源准备，但 PDF 生成暂时没有成功，因此这次没有产出可用的 PDF 文件。当前失败点在后端 PDF 生成配置，系统已停止重复执行同一个失败步骤；修复配置后可以重新发起生成。";
+            }
             if (StrUtil.isNotBlank(latestAssistantText) && !looksLikeFakeCompletion(latestAssistantText)) {
                 return latestAssistantText;
             }
             if (!stepNarratives.isEmpty()) {
-                return String.join("\n", stepNarratives);
+                return "我已经执行了任务步骤，但还没有拿到可展示的最终产物。请根据上面的步骤结果确认是否需要继续。";
             }
             if (!observations.isEmpty()) {
-                return observations.getLast();
+                return stripObservationPrefix(observations.getLast());
             }
             return "任务已执行，但未产出可展示的文本结果";
         }
@@ -457,6 +475,17 @@ public class AutonomousToolRuntime {
             }
 
             if ("generatePDF".equals(firstToolCall.name())
+                    && hasFailedToolResponseNamed("generatePDF")) {
+                return ToolResponseMessage.builder()
+                        .responses(List.of(new ToolResponseMessage.ToolResponse(
+                                UUID.randomUUID().toString(),
+                                "generatePDF",
+                                "Skipped generatePDF retry: previous PDF generation failed. Do not retry the same failing tool call; summarize the current state to the user without raw exception text."
+                        )))
+                        .build();
+            }
+
+            if ("generatePDF".equals(firstToolCall.name())
                     && requestNeedsPdfWithImages(task.originalUserRequest())
                     && hasToolResponseNamed("searchImage")
                     && !hasToolResponseNamed("downloadResource")) {
@@ -494,6 +523,17 @@ public class AutonomousToolRuntime {
                     .anyMatch(response -> toolName.equals(response.name()));
         }
 
+        private boolean hasFailedToolResponseNamed(String toolName) {
+            return messages.stream()
+                    .filter(ToolResponseMessage.class::isInstance)
+                    .map(ToolResponseMessage.class::cast)
+                    .flatMap(message -> message.getResponses().stream())
+                    .filter(response -> toolName.equals(response.name()))
+                    .map(ToolResponseMessage.ToolResponse::responseData)
+                    .map(String::valueOf)
+                    .anyMatch(rawResult -> "FAILURE".equals(determineToolStatus(toolName, rawResult)));
+        }
+
         private String findFirstImageUrlFromToolResponses() {
             return messages.stream()
                     .filter(ToolResponseMessage.class::isInstance)
@@ -520,8 +560,85 @@ public class AutonomousToolRuntime {
 
         private String formatToolResponses(ToolResponseMessage toolResponseMessage) {
             return toolResponseMessage.getResponses().stream()
-                    .map(response -> "工具 " + response.name() + " 完成了它的任务，结果: " + response.responseData())
+                    .map(response -> formatToolResponse(response.name(), String.valueOf(response.responseData())))
                     .collect(Collectors.joining("\n"));
+        }
+
+        private String formatToolResponse(String toolName, String rawResult) {
+            if ("searchWeb".equals(toolName)) {
+                int count = countResultItems(rawResult);
+                return "工具 searchWeb 已完成：检索约会地点与参考信息" + formatCount(count) + "。";
+            }
+            if ("searchImage".equals(toolName)) {
+                int count = countResultItems(rawResult);
+                return "工具 searchImage 已完成：搜索可用于计划展示的网络图片" + formatCount(count) + "。";
+            }
+            if ("downloadResource".equals(toolName)) {
+                DownloadResult result = (DownloadResult) interpreterRegistry.get(toolName).interpret(rawResult);
+                if (result.success()) {
+                    return "工具 downloadResource 已完成：下载图片资源，用于生成最终文件。";
+                }
+                return "工具 downloadResource 执行失败：图片资源未能保存到本地。";
+            }
+            if ("generatePDF".equals(toolName)) {
+                if (rawResult != null && rawResult.toLowerCase().startsWith("skipped ")) {
+                    return "工具 generatePDF 已跳过：上一次 PDF 生成未成功，避免重复执行同一个失败步骤。";
+                }
+                PdfGenerationResult result = (PdfGenerationResult) interpreterRegistry.get(toolName).interpret(rawResult);
+                if (result.success() && result.readable()) {
+                    return "工具 generatePDF 已完成：生成可读取的 PDF，已保存到 " + result.localPath() + "。";
+                }
+                return "工具 generatePDF 未能完成：PDF 暂时没有生成，已记录失败原因并停止暴露底层异常。";
+            }
+            if ("writeFile".equals(toolName) && rawResult != null && rawResult.toLowerCase().startsWith("skipped ")) {
+                return "工具 writeFile 已跳过：用户未要求文本文件，继续生成最终产物。";
+            }
+            if ("doTerminate".equals(toolName)) {
+                return "工具 doTerminate 已完成：结束本次智能体任务。";
+            }
+            return "工具 " + toolName + " 已完成：执行当前步骤任务。";
+        }
+
+        private String formatCount(int count) {
+            return count > 0 ? "，获得 " + count + " 条结果" : "";
+        }
+
+        private int countResultItems(String rawResult) {
+            if (StrUtil.isBlank(rawResult)) {
+                return 0;
+            }
+            try {
+                if (rawResult.trim().startsWith("[")) {
+                    return JSONUtil.parseArray(rawResult).size();
+                }
+                if (JSONUtil.isTypeJSON(rawResult)) {
+                    Object items = JSONUtil.parseObj(rawResult).get("items");
+                    if (items instanceof cn.hutool.json.JSONArray array) {
+                        return array.size();
+                    }
+                    return 1;
+                }
+                return JSONUtil.parseArray("[" + rawResult + "]").size();
+            } catch (Exception ignored) {
+                return 0;
+            }
+        }
+
+        private String extractToolError(String rawResult, String fallback) {
+            if (StrUtil.isNotBlank(rawResult) && JSONUtil.isTypeJSON(rawResult)) {
+                String error = JSONUtil.parseObj(rawResult).getStr("error", "");
+                if (StrUtil.isNotBlank(error)) {
+                    return error;
+                }
+            }
+            return fallback;
+        }
+
+        private String stripObservationPrefix(String observation) {
+            if (StrUtil.isBlank(observation)) {
+                return "";
+            }
+            return observation.replaceFirst("^FINAL_RESPONSE:\\s*", "");
         }
     }
 
