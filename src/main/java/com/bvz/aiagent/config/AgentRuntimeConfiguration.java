@@ -7,6 +7,7 @@ import com.bvz.aiagent.core.policy.SafetyBoundaryPolicy;
 import com.bvz.aiagent.core.policy.TaskPolicy;
 import com.bvz.aiagent.core.policy.TaskPolicyRegistry;
 import com.bvz.aiagent.core.policy.TruthfulnessPolicy;
+import com.bvz.aiagent.core.runtime.AutonomousToolRuntime;
 import com.bvz.aiagent.core.runtime.AgentOrchestrator;
 import com.bvz.aiagent.core.runtime.DefaultCompletionValidator;
 import com.bvz.aiagent.core.runtime.DefaultRepairStrategy;
@@ -19,6 +20,9 @@ import com.bvz.aiagent.core.tool.ToolResultInterpreterRegistry;
 import com.bvz.aiagent.domain.love.skills.DatePlanSkill;
 import com.bvz.aiagent.domain.love.skills.MessageDraftSkill;
 import com.bvz.aiagent.domain.love.skills.RelationshipAdviceSkill;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -38,8 +42,26 @@ public class AgentRuntimeConfiguration {
     }
 
     @Bean
-    public ModelStepExecutor modelStepExecutor(ToolResultInterpreterRegistry interpreterRegistry) {
-        return new ModelStepExecutor(interpreterRegistry);
+    public AutonomousToolRuntime autonomousToolRuntime(
+            ToolResultInterpreterRegistry interpreterRegistry,
+            ToolCallback[] allTools,
+            SyncMcpToolCallbackProvider toolCallbackProvider,
+            ChatModel dashscopeChatModel
+    ) {
+        return new AutonomousToolRuntime(
+                interpreterRegistry,
+                allTools,
+                toolCallbackProvider,
+                dashscopeChatModel
+        );
+    }
+
+    @Bean
+    public ModelStepExecutor modelStepExecutor(
+            ToolResultInterpreterRegistry interpreterRegistry,
+            AutonomousToolRuntime autonomousToolRuntime
+    ) {
+        return new ModelStepExecutor(interpreterRegistry, autonomousToolRuntime);
     }
 
     @Bean

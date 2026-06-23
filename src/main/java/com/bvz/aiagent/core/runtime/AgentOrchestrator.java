@@ -7,6 +7,7 @@ import com.bvz.aiagent.core.model.AgentTask;
 import com.bvz.aiagent.core.model.ExecutionPlan;
 import com.bvz.aiagent.core.model.ExecutionState;
 import com.bvz.aiagent.core.model.StepResult;
+import com.bvz.aiagent.core.model.TaskProfile;
 import com.bvz.aiagent.core.skill.SkillRegistry;
 
 public class AgentOrchestrator {
@@ -35,16 +36,28 @@ public class AgentOrchestrator {
     }
 
     public AgentResult run(AgentTask task) {
+        TaskProfile profile = taskClassifier.classify(task.originalUserRequest());
+        AgentTask classifiedTask = new AgentTask(
+                task.taskId(),
+                task.originalUserRequest(),
+                task.normalizedGoal(),
+                profile.taskType(),
+                profile.riskLevel(),
+                profile.artifactRequired(),
+                profile.externalInfoRequired(),
+                task.conversationContext(),
+                task.userPreferences()
+        );
         ExecutionState state = ExecutionState.initial();
-        ExecutionPlan plan = planGenerator.createPlan(task, state);
+        ExecutionPlan plan = planGenerator.createPlan(classifiedTask, state);
         SkillRegistry.GuidanceBundle guidanceBundle = skillRegistry.buildGuidance(
-                task,
+                classifiedTask,
                 new SuccessContract(false, false, null, null, true, false, false)
         );
 
-        StepResult stepResult = executor.executeNextStep(task, state, plan);
+        StepResult stepResult = executor.executeNextStep(classifiedTask, state, plan);
         ExecutionState nextState = stepResult.nextState();
-        ValidationResult validation = validator.validate(task, nextState, guidanceBundle.contract());
+        ValidationResult validation = validator.validate(classifiedTask, nextState, guidanceBundle.contract());
         if (!validation.passed() && validation.repairable()) {
             repairStrategy.buildRepairInstruction(validation, nextState);
         }

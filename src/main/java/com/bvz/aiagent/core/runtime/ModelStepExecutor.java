@@ -12,9 +12,18 @@ import java.util.List;
 public class ModelStepExecutor {
 
     private final ToolResultInterpreterRegistry interpreterRegistry;
+    private final AutonomousToolRuntime autonomousToolRuntime;
 
     public ModelStepExecutor(ToolResultInterpreterRegistry interpreterRegistry) {
+        this(interpreterRegistry, null);
+    }
+
+    public ModelStepExecutor(
+            ToolResultInterpreterRegistry interpreterRegistry,
+            AutonomousToolRuntime autonomousToolRuntime
+    ) {
         this.interpreterRegistry = interpreterRegistry;
+        this.autonomousToolRuntime = autonomousToolRuntime;
     }
 
     public StepResult executeNextStep(
@@ -65,6 +74,19 @@ public class ModelStepExecutor {
     }
 
     public StepResult executeNextStep(AgentTask task, ExecutionState state, ExecutionPlan plan) {
-        return new StepResult(List.of(), List.of(), state, true);
+        if (autonomousToolRuntime == null) {
+            ExecutionState nextState = new ExecutionState(
+                    state.stepIndex() + 1,
+                    state.toolCallCount(),
+                    state.planningRound(),
+                    state.toolHistory(),
+                    List.of("FINAL_RESPONSE: executor runtime is not configured"),
+                    state.partialArtifacts(),
+                    state.violations(),
+                    ExecutionState.Status.FAILED
+            );
+            return new StepResult(List.of("runtime not configured"), List.of(), nextState, true);
+        }
+        return autonomousToolRuntime.execute(task, state, plan);
     }
 }
